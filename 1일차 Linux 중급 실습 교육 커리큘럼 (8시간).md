@@ -75,7 +75,7 @@
    출력에 `Wired connection 1` (enp0s3용)와 `Wired connection 2` (enp0s8용)가 보일 수 있습니다. 이제 `Wired connection 2` 프로파일에 고정 IP를 설정하고 자동 연결되도록 수정합니다. 예를 들어 VM의 호스트전용 IP를 **192.168.56.101**로 정하겠습니다.
 
    ```bash
-   sudo nmcli connection modify "Wired connection 2" ipv4.method manual ipv4.addresses 192.168.56.101/24 connection.autoconnect yes
+   sudo nmcli connection modify "Wired connection 2" ipv4.addresses 192.168.56.101/24 connection.autoconnect yes
    sudo nmcli connection up "Wired connection 2"
    ```
 
@@ -220,153 +220,98 @@
 
 **문제 해결:** nmcli로 IP를 변경한 후 연결이 끊어졌다면, IP 충돌이나 잘못된 설정 가능성이 있습니다. 예를 들어 수동 IP를 설정했는데 이미 DHCP로 해당 IP가 다른 장치에 할당되어 있으면 통신이 불안정할 수 있습니다. 이 경우 다른 IP를 선택하거나 DHCP 서버 설정을 조정하세요. 또한 여러 NIC가 있을 때 **기본 라우트**가 올바른지 확인해야 합니다. NAT 인터페이스(`enp0s3`)를 통해 인터넷을 써야 한다면 `ip route` 명령으로 0.0.0.0/0 경로가 10.0.2.2 (VirtualBox NAT 게이트웨이)로 설정되어 있는지 확인하세요. 만약 고정 IP 설정 시 게이트웨이를 잘못 지정하여 기본 경로가 바뀌었다면 수동으로 수정하거나 해당 인터페이스의 `ipv4.never-default yes` 옵션을 주어 기본게이트웨이를 설정하지 않도록 할 수 있습니다. 호스트 이름 변경 후 SSH 접속 프롬프트가 이전 이름으로 보인다면, SSH 재접속하거나 터미널 제목을 수동 갱신해야 할 수 있으니 혼동하지 않아도 됩니다.
 
-## 13:00–14:00: 방화벽 설정 및 서비스 포트 개방 (firewall-cmd)
+## 13:00–14:00: MySQL 데이터베이스 설치 및 연동 설정
 
-**이론:** Rocky Linux 9에서는 **firewalld**를 통해 방화벽을 관리합니다. 기본적으로 공개 영역(public zone)이 사용되며, SSH 등 일부 서비스만 허용되고 나머지 포트는 차단됩니다. 이번 단계에서는 **firewall-cmd** 명령을 사용하여 필요한 서비스와 포트를 방화벽에 열어주는 방법을 배웁니다. 영구(permanent) 설정과 일시(runtime) 설정의 차이를 이해하고, 설정 변경 후 \*\*재로드(reload)\*\*의 중요성을 설명합니다. 또한 방화벽 문제를 진단하는 방법(`--list-all` 등)을 다룹니다.
+**이론:** 동적인 웹 애플리케이션을 구축하기 위해 데이터베이스가 필요합니다. MySQL은 대표적인 관계형 DBMS로, 이번 시간에는 Host PC에 MySQL 서버를 설치하고, 각 애플리케이션 서버에서 이를 사용할 수 있도록 네트워크를 설정합니다. 또한 데이터베이스 서비스의 시작/정지 관리, 보안 설정(mysql_secure_installation)을 간략히 다룹니다.
 
-**실습:** 향후 웹 서버와 DB 서버를 구성할 것을 대비하여, 필요한 포트를 개방합니다.
+**실습:** Host PC에 MySQL 데이터베이스를 설치하고 각 애플리케이션 서버에서 접속할 수 있도록 설정합니다.
 
-1. **firewalld 상태 확인** – 우선 방화벽 서비스가 활성화되어 있는지 확인합니다:
+1. **Host PC에 MySQL 서버 설치** – Host PC에 MySQL을 설치합니다.
 
-   ```bash
-   sudo firewall-cmd --state
+   a. MySQL 공식 웹사이트(https://dev.mysql.com/downloads/installer/)에서 MySQL 8.4.5 MSI 인스톨러를 다운로드합니다.
+   
+   b. 다운로드한 인스톨러를 실행하고 다음 단계를 따릅니다:
+      - **Setup Type** 선택 화면에서 "Developer Default" 또는 "Server only" 선택
+      - **Check Requirements** 화면에서 필요한 추가 요구사항 설치 확인
+      - **Installation** 버튼 클릭하여 설치 시작
+   
+   c. **High Availability** 설정 화면에서 "Standalone MySQL Server" 선택
+   
+   d. **Type and Networking** 설정:
+      - **Config Type**: "Development Computer" 선택
+      - **TCP/IP Port**: 3306 (기본값) 유지
+      - "Open Windows Firewall ports for network access" 체크
+   
+   e. **Authentication Method**:
+      - "Use Strong Password Encryption" (권장) 선택
+   
+   f. **Accounts and Roles**:
+      - MySQL Root 암호 설정 (복잡한 암호 사용 권장)
+      - "Add User" 클릭하여 새로운 사용자 추가 가능
+   
+   g. **Windows Service** 설정:
+      - "Configure MySQL Server as a Windows Service" 체크
+      - **Service Name**: "MySQL" (기본값)
+      - "Start the service after setup" 체크
+      - "Run Windows Service as..." Standard System Account 선택
+
+   h. **Apply Configuration** 클릭하여 설정 적용
+   
+   i. 설치 완료 후 MySQL Workbench가 자동으로 설치되어 있습니다.
+
+2. **보안 설정 확인 및 조정** – MySQL Workbench를 사용하여 보안 설정을 확인하고 조정합니다:
+
+   a. MySQL Workbench 실행 (시작 메뉴에서 "MySQL Workbench" 검색)
+   
+   b. 설치 중 생성한 root 계정으로 로컬 인스턴스에 접속
+   
+   c. 보안 설정 확인 및 조정:
+      - Server → Users and Privileges 메뉴 선택
+      - 불필요한 계정이 있는지 확인하고 제거
+      - root 계정의 "Limit Connectivity to Hosts Matching" 필드가 "localhost"인지 확인
+      - Administrative Roles 탭에서 각 계정의 권한 검토
+
+3. **데이터베이스 및 계정 생성** – MySQL Workbench에서 다음 작업을 수행합니다:
+
+   a. 새 데이터베이스 생성:
+      - Navigator 패널에서 Schemas 탭 선택
+      - 마우스 우클릭 → Create Schema
+      - Schema Name: "demo" 입력 후 Apply
+
+   b. 새 사용자 계정 생성:
+      - Administration 탭 → Users and Privileges
+      - Add Account 클릭
+      - Login Name: "demo_user"
+      - Authentication Type: MySQL Password
+      - Password: "DemoPass123!" 설정
+      - Limit to Hosts Matching: "%" (모든 호스트 허용)
+      
+   c. 권한 부여:
+      - Schema Privileges 탭 선택
+      - Add Entry → Selected Schema ("demo" 선택)
+      - SELECT, INSERT, UPDATE, DELETE 등 필요한 권한 체크
+      - Apply 클릭하여 변경사항 저장
+
+4. **애플리케이션 서버에서 MySQL 접속 설정** – 각 애플리케이션 서버의 `application.properties` 파일을 수정하여 Host PC의 MySQL 서버에 접속하도록 설정합니다. 예를 들어:
+
+   ```properties
+   spring.datasource.url=jdbc:mysql://<Host_PC_IP>:3306/demo
+   spring.datasource.username=demo_user
+   spring.datasource.password=DemoPass123!
    ```
 
-   `"running"`이라고 나오면 firewalld가 동작 중입니다. (`systemctl status firewalld`로 좀 더 상세 확인 가능)
+   `<Host_PC_IP>`를 Host PC의 실제 IP 주소로 변경합니다. 이 설정을 적용한 후 애플리케이션을 재빌드하고 실행합니다.
 
-2. **현재 방화벽 규칙 확인** – 기본 정책을 살펴봅니다:
-
-   ```bash
-   sudo firewall-cmd --list-all
-   ```
-
-   출력 예시:
-
-   ```
-   public (active)
-     target: default
-     interfaces: enp0s3 enp0s8
-     services: ssh
-     ports: 
-     ... (생략)
-   ```
-
-   public 영역에 SSH가 허용되어 있고 그 외 포트는 비어있음을 확인할 수 있습니다.
-
-3. **SSH 서비스 허용(이미 허용됨)** – SSH(`22/tcp`)는 기본으로 열려 있으나, 만약 `services: ssh`가 없다면 다음으로 추가합니다:
-
-   ```bash
-   sudo firewall-cmd --permanent --add-service=ssh
-   ```
-
-   (기본적으로 설치 시 SSH는 열려 있으므로 이 단계는 참고용입니다.)
-
-4. **HTTP 서비스 허용** – 나중에 웹 서버(Nginx)가 사용할 **HTTP(80)** 포트를 열어줍니다. HTTP는 firewalld의 predefined 서비스 이름으로 존재합니다.
-
-   ```bash
-   sudo firewall-cmd --permanent --add-service=http
-   ```
-
-5. **MySQL 서비스/포트 허용** – MySQL 데이터베이스(3306 포트)는 기본 firewalld 서비스 목록에 있을 수 있습니다. 먼저 `services: mysql`이 있는지 확인하고 없으면 추가합니다. (또는 포트 번호로 직접 추가 가능)
-
-   ```bash
-   sudo firewall-cmd --permanent --add-service=mysql
-   ```
-
-   만약 위 명령에서 서비스 이름을 인식 못 하면 다음처럼 포트 번호로 추가합니다:
+5. **방화벽 설정** – Host PC의 방화벽에서 MySQL 포트(3306)가 열려 있는지 확인합니다. 필요시 방화벽 규칙을 추가하여 외부에서 MySQL에 접속할 수 있도록 설정합니다.
 
    ```bash
    sudo firewall-cmd --permanent --add-port=3306/tcp
-   ```
-
-   (MySQL은 서버 자체에서 로컬 연결만 사용한다면 포트를 열 필요 없지만, 여러 VM간 DB 접속이나 호스트-PC에서 접속을 허용하려면 열어줍니다.)
-
-6. **애플리케이션 포트(8080) 허용** – Spring Boot 애플리케이션은 기본적으로 **8080/tcp** 포트를 사용할 예정입니다. 이 포트는 custom 포트이므로 명시적으로 열어야 합니다:
-
-   ```bash
-   sudo firewall-cmd --permanent --add-port=8080/tcp
-   ```
-
-7. **방화벽 규칙 적용** – 영구 설정을 모두 추가했으면 firewalld를 재로드하여 적용합니다:
-
-   ```bash
    sudo firewall-cmd --reload
    ```
 
-   그런 다음 다시 규칙 확인:
+**문제 해결:** MySQL 접속이 되지 않는 경우, Host PC의 방화벽 설정과 MySQL 설정 파일(`/etc/mysql/mysql.conf.d/mysqld.cnf`)의 `bind-address` 설정을 확인합니다. `bind-address`가 `0.0.0.0`으로 설정되어 있어야 외부 접속이 가능합니다. 또한, 각 애플리케이션 서버에서 Host PC의 IP로 ping이 되는지 확인하여 네트워크 연결 상태를 점검합니다.
 
-   ```bash
-   sudo firewall-cmd --list-all
-   ```
-
-   이제 `services: ssh, http, mysql` 및 `ports: 8080/tcp` 등이 포함되어 표시될 것입니다.
-
-8. **방화벽 적용 테스트** – 각 포트가 제대로 열렸는지 간단히 테스트합니다. 예를 들어, 방화벽에 의해 차단되는 경우 연결이 거부되지만 열렸으면 통신이 가능합니다. 나중 단계에서 실제 애플리케이션 접속 테스트로 확인하게 될 것입니다. (예: 웹 서버 구성 후 호스트에서 VM의 80 포트 접속 확인 등)
-
-**문제 해결:** 방화벽 설정 후 서비스 접속이 안 되면, **영역(zone)** 설정을 확인해야 합니다. 기본으로 모든 NIC가 public 영역에 속하지만, 만약 호스트전용 네트워크를 내부망으로 간주하여 **trusted**나 **internal** 영역으로 사용한다면 해당 영역에 규칙을 추가해야 합니다. `firewall-cmd --get-active-zones`로 인터페이스별 영역을 확인하세요. 또한 규칙 변경 후 `--reload`를 빼먹지 않도록 합니다. 실수로 모든 포트를 막아 SSH 접속이 끊어졌다면, **VM 콘솔**로 접속해 `firewall-cmd --panic-off` 등을 이용해 일시적으로 방화벽을 풀고 규칙을 수정할 수 있습니다. 최악의 경우 `sudo systemctl stop firewalld`로 방화벽을 끄고 원인을 파악합니다. (실무 환경이 아니라 학습용이므로 일시적으로 방화벽을 끄고 진행할 수도 있지만, 가능하면 규칙 설정을 익혀 둡니다.)
-
-## 14:00–15:00: MySQL 데이터베이스 설치 및 연동 설정
-
-**이론:** 동적인 웹 애플리케이션을 구축하기 위해 데이터베이스가 필요합니다. MySQL은 대표적인 관계형 DBMS로, Rocky Linux 9에서는 기본 저장소에 MySQL과 호환되는 **MariaDB**가 포함되어 있습니다. 이번 시간에는 MariaDB 서버를 설치하고 데이터베이스를 생성한 뒤, Spring Boot 애플리케이션에서 사용할 계정과 권한을 설정합니다. 또한 데이터베이스 서비스의 시작/정지 관리, 보안 설정(mysql\_secure\_installation)을 간략히 다룹니다.
-
-**실습:** Rocky Linux에 MySQL(MariaDB) 데이터베이스를 설치하고 간단한 설정을 수행합니다.
-
-1. **MariaDB 서버 설치** – Rocky Linux 9 기본 패키지로 제공되는 MariaDB를 사용합니다. `dnf` 패키지 관리자로 MariaDB 서버를 설치합니다:
-
-   ```bash
-   sudo dnf install -y mariadb-server
-   ```
-
-   설치가 완료되면 MariaDB 서버 데몬(mysqld)을 활성화합니다.
-
-2. **DB 서비스 시작 및 부팅 시 활성화** – systemd를 통해 MariaDB를 시작하고 자동 시작을 설정합니다:
-
-   ```bash
-   sudo systemctl enable --now mariadb
-   ```
-
-   이 명령으로 즉시 MariaDB가 시작되고, 재부팅 후에도 자동으로 올라오도록 설정됩니다.
-   `systemctl status mariadb`로 상태를 확인하여 `active (running)`임을 확인합니다.
-
-3. **초기 보안 설정** – 기본 MariaDB 설정에서는 root 사용자 비밀번호가 빈 상태 등 보안이 취약할 수 있습니다. 이를 보완하기 위해 MySQL에서 제공하는 보안 스크립트를 실행합니다:
-
-   ```bash
-   sudo mysql_secure_installation
-   ```
-
-   프롬프트에 따라 Root 비밀번호 설정, 익명 사용자 제거, 원격 root 접속 차단, 테스트 데이터베이스 제거, 권한 적용 등을 진행합니다. (학습환경에서는 적절히 선택하되, root 비밀번호는 꼭 설정하세요.)
-
-4. **데이터베이스 및 계정 생성** – 웹 애플리케이션용 데이터베이스와 전용 계정을 만듭니다. MariaDB에 접속하여 SQL 명령을 실행합니다. 우선 MariaDB 클라이언트 실행:
-
-   ```bash
-   mysql -u root -p
-   ```
-
-   (위에서 설정한 root 비밀번호 입력) 프롬프트가 `MariaDB [(none)]>`으로 바뀌면 다음 SQL을 차례로 입력합니다. (각 줄 끝에 세미콜론 `;` 필수)
-
-   ```sql
-   CREATE DATABASE demo;  -- 웹 애플리케이션용 DB 생성
-   CREATE USER 'demo_user'@'localhost' IDENTIFIED BY 'DemoPass123!';
-   GRANT ALL PRIVILEGES ON demo.* TO 'demo_user'@'localhost';
-   FLUSH PRIVILEGES;
-   EXIT;
-   ```
-
-   설명: `demo`라는 이름의 새 데이터베이스를 만들고, 로컬에서만 접속 가능한 `demo_user` 계정과 암호를 생성했습니다. 이 계정에 `demo` DB에 대한 모든 권한을 부여했습니다. `EXIT`으로 MySQL 쉘을 종료합니다.
-
-5. **동작 확인** – 방금 만든 계정으로 로그인 테스트를 해봅니다:
-
-   ```bash
-   mysql -u demo_user -p   # 패스워드 입력
-   ```
-
-   접속 후 `SHOW DATABASES;` 명령으로 `demo` DB가 보이면 성공입니다. `EXIT;`으로 나옵니다.
-
-6. **(옵션) 원격 접속 허용 설정** – 만약 웹 애플리케이션이 **다른 VM 또는 호스트**에서 DB에 접속해야 한다면(예: DB 서버를 분리 운용), 해당 호스트에 대한 접속 권한을 부여해야 합니다. 예를 들어 demo\_user가 같은 네트워크 대역에서 접속하려면 MySQL 내에서 `CREATE USER 'demo_user'@'192.168.56.%' IDENTIFIED BY '...';` 등으로 `%` 와일드카드를 사용해 권한을 주어야 합니다. 또한 `bind-address` 설정과 방화벽 포트(3306)도 열어야 합니다. 그러나 여기서는 애플리케이션과 DB를 동일 서버에서 실행할 것이므로 이러한 원격 설정은 필요 없습니다.
-
-**문제 해결:** `mysql_secure_installation` 실행 시 **socket 파일 에러** 등이 발생하면, MariaDB 서비스가 제대로 시작되지 않았을 수 있습니다. `systemctl restart mariadb`로 재시도하고 로그(`/var/log/mariadb.log` 등)를 확인합니다. 만약 root 비밀번호를 분실했다면, 안전 모드로 DB를 띄워 초기화하거나 새 계정을 만들어야 합니다(다소 복잡한 절차로, 필요시 강사가 도와줍니다). `CREATE USER` 단계에서 이미 계정이 존재한다고 나오면, 이전에 한 실습이 남은 것이므로 `DROP USER 'demo_user'@'localhost';` 후 재실행합니다. 또, SQL 문장 끝에 세미콜론 누락 등 문법 오류에 유의합니다.
-
-## 15:00–16:00: Spring Boot 웹 애플리케이션 배포 및 실행
+## 14:00–15:00: Spring Boot 웹 애플리케이션 배포 및 실행
 
 **이론:** 이제 웹 애플리케이션 서버를 구성합니다. 예제로 **Spring Boot** 기반의 자바 웹 애플리케이션을 사용합니다. Spring Boot 애플리케이션은 내장 웹서버(Tomcat)를 통해 8080 포트로 동작하며, 앞서 구성한 MySQL(MariaDB) 데이터베이스와 연동됩니다. 이 단계에서는 Java JDK를 설치하고, Git을 통해 예제 애플리케이션 코드를 가져와 빌드합니다. Linux 환경에서 애플리케이션을 실행하고 프로세스를 관리하는 방법, 로그 확인 방법 등을 익힙니다.
 
@@ -388,7 +333,7 @@
 
    `git --version`으로 버전을 확인합니다.
 
-3. **애플리케이션 소스 다운로드** – 강사가 제공한 Spring Boot 애플리케이션 소스 코드를 Git 저장소에서 클론합니다. (예시 URL을 사용하되, 실제로는 제공된 레포지토리 URL을 사용해야 합니다.)
+3. **애플리케이션 소스 다운로드** – 강사가 제공한 Spring Boot 애플리케이션 소스 코드를 Git으로 가져올 것이므로 Git 저장소를 클론합니다. (예시 URL을 사용하되, 실제로는 제공된 레포지토리 URL을 사용해야 합니다.)
 
    ```bash
    git clone https://github.com/<Github계정>/<예제애플리케이션>.git
@@ -445,12 +390,12 @@
    nohup java -jar build/libs/hello-springboot-0.0.1-SNAPSHOT.jar > app.log 2>&1 &
    ```
 
-   이렇게 하면 애플리케이션이 백그라운드에서 실행되며 로그는 `app.log` 파일에 기록됩니다. `jobs` 명령으로 백그라운드 작업을 확인하거나, `ps -ef | grep java`로 프로세스가 떠있는지 확인합니다. (고급: 이후 `kill <PID>`로 종료 가능합니다.)
+   이렇게 하면 애플리케이션이 백그라운드에서 실행되며 로그는 `app.log` 파일에 기록됩니다. `jobs` 명령으로 백그라운드 작업을 확인하거나 `ps -ef | grep java`로 프로세스가 떠있는지 확인합니다. (고급: 이후 `kill <PID>`로 종료 가능합니다.)
    **※ 중요:** 실습 시에는 간단히 한 개의 터미널에서 실행해 보고, 필요하면 새 세션(MobaXterm 탭)을 열어 다음 단계를 진행합니다.
 
 **문제 해결:** 애플리케이션 구동 중 **오류 발생** 시 로그를 면밀히 살펴봅니다. 예를 들어 **DB 연결 오류**(Communications link failure 등)가 나오면, DB 서비스가 비활성화되었거나 `application.properties`의 DB 설정이 잘못된 것입니다. 이때는 MariaDB 서비스 상태를 `sudo systemctl status mariadb`로 확인하거나, 설정 정보를 재확인합니다. **포트 충돌 오류**(Address already in use)가 발생하면 이미 해당 포트에 프로세스가 있는 것이므로 `lsof -i:8080` 등으로 확인 후 기존 프로세스를 종료합니다. Gradle 빌드 실패 시 인터넷 연결 문제이거나 테스트 케이스 실패 등이 원인일 수 있으므로, 네트워크를 체크하고 필요하다면 빌드 명령에 `-x test` 옵션을 주어 테스트를 건너뜁니다. 만약 애플리케이션이 실행은 되는데 `/welcome` 등에 접속해도 응답이 없다면, 방화벽 설정(8080포트 개방 여부)과 SELinux 설정을 점검해야 합니다. (SELinux가 활성화된 상태에서 8080포트 사용을 차단할 수 있습니다. 다음 단계에서 SELinux 관련 조치를 다룹니다.)
 
-## 16:00–17:00: Nginx 설치 및 로드 밸런서 구성
+## 15:00–16:00: Nginx 설치 및 로드 밸런서 구성
 
 **이론:** 마지막으로 **Nginx** 웹 서버를 사용하여 로드 밸런서를 구성합니다. 로드 밸런서는 다수의 애플리케이션 인스턴스(Spring Boot 서버들)에 트래픽을 분산시켜줄 수 있습니다. 또한 Nginx를 프록시로 두어 클라이언트는 80번 포트로 접속하고, Nginx가 백엔드로 들어온 요청을 8080포트의 Spring Boot 서버들에게 전달하도록 설정합니다. 이를 통해 하나의 엔드포인트로 여러 서버를 효과적으로 사용할 수 있습니다. (실습 환경에서는 한 대의 VM을 복제하여 다수의 서버를 시뮬레이션합니다.)
 
@@ -572,7 +517,6 @@
    `systemctl status nginx`로 active 상태 확인. 오류로 inactive 상태라면 `journalctl -xe`에서 원인을 확인합니다 (일반적으로 설정 오타, SELinux 등).
 
 9. **로드밸런서 동작 테스트** – 호스트(Windows) PC에서 웹 브라우저를 열고 로드밸런서의 IP인 `http://192.168.56.100`으로 접속합니다. 또는 MobaXterm 탭에서 `curl 192.168.56.100` 명령을 실행해봐도 됩니다. 이 요청이 Nginx를 통해 백엔드의 Spring Boot 애플리케이션으로 전달되어 응답이 오는지 확인합니다. 브라우저에서 애플리케이션 페이지가 나타나면 성공입니다.
-   로드밸런싱이 제대로 되는지 확인하려면 브라우저에서 여러 번 새로고침하거나 또는 `curl`로 연속 요청을 보내보고, 각 앱 서버에서 로그를 확인합니다. 두 서버의 로그에 번갈아 요청 기록이 남았다면 라운드로빈으로 분산된 것입니다. (애플리케이션 응답에 서버 호스트명이 표시되도록 개발되었다면 쉽게 구분 가능하지만, 그렇지 않다면 로그로 확인합니다.)
-   한쪽 애플리케이션 서버를 종료하고 요청을 보내어, 나머지 서버로 계속 서비스 되는지도 실험해 볼 수 있습니다. 이때 Nginx 설정상 기본값으로 일정 시간 연결 실패한 서버를 제외하고 동작합니다.
+   로드밸런싱이 제대로 되는지 확인하려면 브라우저에서 여러 번 새로고침하거나 또는 `curl`로 연속 요청을 보내보고, 각 앱 서버에서 로그를 확인합니다. 두 서버 모두 애플리케이션이 정상 동작 중이면 준비 완료입니다.
 
 **문제 해결:** 로드밸런서 설정 후 **192.168.56.100 접속 불가** 상황에서는 다음을 점검합니다. (1) `hanafn-lb`의 Nginx 서비스 상태 및 포트 리스닝 확인: `ss -tnlp | grep :80`으로 nginx가 80포트 LISTEN 중인지 봅니다. (2) `hanafn-lb`에서 `curl 192.168.56.101:8080` 등으로 백엔드 서버들과 통신이 되는지 확인합니다. 통신이 안 되면 네트워크 또는 방화벽 이슈입니다 (백엔드 서버 `hanafn-app`들의 방화벽 8080이 열려있는지, host-only 네트워크로 서로 통신 가능한지 확인). (3) SELinux 설정이 적용되지 않아 Nginx 에러 로그(`/var/log/nginx/error.log`)에 "permission denied while connecting to upstream"이 있다면, `
