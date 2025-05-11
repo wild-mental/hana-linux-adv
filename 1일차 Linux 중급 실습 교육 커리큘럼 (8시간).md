@@ -336,42 +336,55 @@
 3. **애플리케이션 소스 다운로드** – 강사가 제공한 Spring Boot 애플리케이션 소스 코드를 Git으로 가져올 것이므로 Git 저장소를 클론합니다. (예시 URL을 사용하되, 실제로는 제공된 레포지토리 URL을 사용해야 합니다.)
 
    ```bash
-   git clone https://github.com/<Github계정>/<예제애플리케이션>.git
-   cd <예제애플리케이션>
+   cd ~
+   git clone https://github.com/wild-mental/msa_main.git
+   cd msa_main
    ```
 
-   명령 실행 후 애플리케이션 소스 디렉토리로 이동합니다. (`ls` 명령으로 `build.gradle` 또는 `pom.xml` 등이 있는지 확인합니다.)
-
-4. **애플리케이션 빌드** – Gradle Wrapper(`gradlew`) 또는 Maven으로 프로젝트를 빌드합니다. (예제 프로젝트에 Gradle Wrapper가 있다고 가정합니다.) 우선 gradlew에 실행 권한을 주고 빌드를 수행합니다:
+4. **애플리케이션 빌드** – Gradle Wrapper(`gradlew`) 로 프로젝트를 빌드합니다. 
+   gradlew에 실행 권한을 주고 빌드를 수행합니다:
 
    ```bash
    chmod +x gradlew
-   ./gradlew build
+   ./gradlew build -x test
    ```
 
    **네트워크 연결 주의:** 처음 Gradle 빌드를 하면 필요한 라이브러리를 다운로드하기 때문에 시간이 조금 걸릴 수 있습니다. 빌드가 성공하면 `BUILD SUCCESSFUL` 메시지가 나타나고, `build/libs` 디렉토리에 실행 가능한 JAR 파일이 생성됩니다.
    (만약 Maven 사용 프로젝트라면 `mvn package` 명령을 사용하고, 산출물은 `target/` 디렉토리에 생깁니다. 이 과정도 유사합니다.)
 
-5. **DB 연결 설정 확인** – 애플리케이션이 DB에 연결하려면 설정 파일(`application.properties` 등)에 DB접속 정보가 맞게 되어있어야 합니다. 일반적으로 Spring Boot 애플리케이션의 리소스 경로(`src/main/resources/`)에 `application.properties` 또는 `application.yml` 파일이 있으며, 그 안에 데이터소스 URL, 계정, 비밀번호 설정이 있습니다. 이를 열어 잘 설정되었는지 확인합니다:
-
+5. **DB 연결 설정 확인** – 애플리케이션이 DB에 연결하려면 설정 파일(`application.properties` 등)에 DB접속 정보가 맞게 되어있어야 합니다. 현재는 `application.yml` 파일에 환경변수를 읽는 설정이 등록되어 있습니다.
    ```bash
-   vi src/main/resources/application.properties
+   cat src/main/resources/application.yml
    ```
 
-   (또는 빌드된 JAR 내부 설정을 참고할 수도 있습니다.) 예를 들어 다음과 같이 설정되어 있어야 합니다.
+   출력을 확인하면 다음과 같이 설정되어 있습니다.
 
+   ```yml
+   server:
+      port: ${SERVER_PORT:8080}
+   spring:
+      application:
+        name: msa_main
+      jpa:
+        hibernate:
+	      ddl-auto: none
+        show-sql: true
+        properties:
+	      hibernate:
+		    format_sql: true
+        database-platform: org.hibernate.dialect.MySQL8Dialect
+      datasource:
+        url: jdbc:mysql://${DB_HOST}:${DB_PORT}/msa_sample
+        username: ${DB_USER}
+        password: ${DB_PASS}
    ```
-   spring.datasource.url=jdbc:mysql://localhost:3306/demo
-   spring.datasource.username=demo_user
-   spring.datasource.password=DemoPass123!
-   ```
 
-   만약 호스트 주소나 계정 정보가 다르게 되어 있다면, 우리 환경에 맞게 수정한 뒤 다시 빌드합니다. (사전에 강사가 환경에 맞게 설정해두었다면 이 과정은 넘어갑니다.)
+   만약 호스트 주소나 계정 정보가 다르게 되어 있다면, 우리 환경에 맞게 수정한 뒤 다시 빌드합니다. 
+   (사전에 강사가 환경에 맞게 설정해두었다면 이 과정은 넘어갑니다.)
 
-6. **애플리케이션 실행** – 빌드된 JAR 파일을 실행합니다. 경로는 Gradle 빌드 기준 `build/libs/<애플리케이션이름>-0.0.1-SNAPSHOT.jar`와 같습니다 (버전 번호는 프로젝트마다 다를 수 있음). 예를 들어:
-
+6. **애플리케이션 실행** – 아래 명령어를 사용해 빌드된 JAR 파일을 실행합니다. 
    ```bash
-   java -jar build/libs/hello-springboot-0.0.1-SNAPSHOT.jar
+   java -jar build/libs/msa_main-1.0.0.jar
    ```
 
    명령을 실행하면 콘솔에 Spring Boot 애플리케이션 로그가 출력됩니다. 처음 실행 시 DB에 연결하여 테이블을 생성하거나 초기화하는 로그가 나올 수 있습니다. **"log started"** 또는 **"Tomcat started on port(s): 8080"** 등의 메시지가 보이면 성공적으로 구동된 것입니다.
@@ -390,7 +403,7 @@
    nohup java -jar build/libs/hello-springboot-0.0.1-SNAPSHOT.jar > app.log 2>&1 &
    ```
 
-   이렇게 하면 애플리케이션이 백그라운드에서 실행되며 로그는 `app.log` 파일에 기록됩니다. `jobs` 명령으로 백그라운드 작업을 확인하거나 `ps -ef | grep java`로 프로세스가 떠있는지 확인합니다. (고급: 이후 `kill <PID>`로 종료 가능합니다.)
+   이렇게 하면 애플리케이션이 백그라운드에서 실행되며 로그는 `app.log` 파일에 기록됩니다. `jobs` 명령으로 백그라운드 작업을 확인하거나 `ps -ef | grep java`로 프로세스가 떠있는지 확인합니다.
    **※ 중요:** 실습 시에는 간단히 한 개의 터미널에서 실행해 보고, 필요하면 새 세션(MobaXterm 탭)을 열어 다음 단계를 진행합니다.
 
 **문제 해결:** 애플리케이션 구동 중 **오류 발생** 시 로그를 면밀히 살펴봅니다. 예를 들어 **DB 연결 오류**(Communications link failure 등)가 나오면, DB 서비스가 비활성화되었거나 `application.properties`의 DB 설정이 잘못된 것입니다. 이때는 MariaDB 서비스 상태를 `sudo systemctl status mariadb`로 확인하거나, 설정 정보를 재확인합니다. **포트 충돌 오류**(Address already in use)가 발생하면 이미 해당 포트에 프로세스가 있는 것이므로 `lsof -i:8080` 등으로 확인 후 기존 프로세스를 종료합니다. Gradle 빌드 실패 시 인터넷 연결 문제이거나 테스트 케이스 실패 등이 원인일 수 있으므로, 네트워크를 체크하고 필요하다면 빌드 명령에 `-x test` 옵션을 주어 테스트를 건너뜁니다. 만약 애플리케이션이 실행은 되는데 `/welcome` 등에 접속해도 응답이 없다면, 방화벽 설정(8080포트 개방 여부)과 SELinux 설정을 점검해야 합니다. (SELinux가 활성화된 상태에서 8080포트 사용을 차단할 수 있습니다. 다음 단계에서 SELinux 관련 조치를 다룹니다.)
